@@ -5,6 +5,13 @@ import UniformTypeIdentifiers
 
 @main
 struct MP4ConvertorApplication: App {
+    init() {
+        NSApplication.shared.setActivationPolicy(.regular)
+        DispatchQueue.main.async {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -25,10 +32,18 @@ struct ContentView: View {
             optionSection
             Divider()
             progressSection
+            if let comparison = viewModel.comparison {
+                Divider()
+                FileComparisonView(
+                    comparison: comparison,
+                    openOriginal: { viewModel.openFile(comparison.input.url) },
+                    openOutput: { viewModel.openFile(comparison.output.url) }
+                )
+            }
             actionSection
         }
         .padding(22)
-        .frame(minWidth: 840, minHeight: 520)
+        .frame(minWidth: 900, minHeight: 640)
         .alert("처리 실패", isPresented: alertBinding) {
             Button("확인", role: .cancel) { viewModel.alertMessage = nil }
         } message: {
@@ -289,6 +304,112 @@ private struct FilePickerRow: View {
     }
 }
 
+private struct FileComparisonView: View {
+    let comparison: ConversionComparison
+    let openOriginal: () -> Void
+    let openOutput: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Label("원본 비교", systemImage: "rectangle.split.2x1")
+                    .font(.headline)
+                Spacer()
+                Text(comparison.savingsText)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(comparison.isSmaller ? .green : .orange)
+                Text(comparison.sizeDifferenceText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                ComparisonFilePanel(
+                    title: "원본",
+                    iconName: "film",
+                    summary: comparison.input,
+                    buttonTitle: "원본 열기",
+                    buttonIcon: "play.rectangle",
+                    action: openOriginal
+                )
+                ComparisonFilePanel(
+                    title: "변환본",
+                    iconName: "film.stack",
+                    summary: comparison.output,
+                    buttonTitle: "변환본 열기",
+                    buttonIcon: "play.rectangle.fill",
+                    action: openOutput
+                )
+            }
+        }
+    }
+}
+
+private struct ComparisonFilePanel: View {
+    let title: String
+    let iconName: String
+    let summary: MediaFileSummary
+    let buttonTitle: String
+    let buttonIcon: String
+    let action: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Label(title, systemImage: iconName)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(summary.fileSizeText)
+                    .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+            }
+
+            Text(summary.url.lastPathComponent)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Divider()
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                ComparisonMetricRow(title: "해상도", value: summary.resolutionText)
+                ComparisonMetricRow(title: "길이", value: summary.durationText)
+                ComparisonMetricRow(title: "프레임", value: summary.frameRateText)
+                ComparisonMetricRow(title: "비트레이트", value: summary.bitrateText)
+                ComparisonMetricRow(title: "오디오", value: summary.audioText)
+            }
+
+            Button(action: action) {
+                Label(buttonTitle, systemImage: buttonIcon)
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(.top, 2)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct ComparisonMetricRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        GridRow {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 64, alignment: .leading)
+            Text(value)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+}
+
 @MainActor
 final class ConverterViewModel: ObservableObject {
     @Published var inputURL: URL?
@@ -322,9 +443,11 @@ final class ConverterViewModel: ObservableObject {
     @Published var isConverting = false
     @Published var estimatedOutputSizeText = ""
     @Published var convertedFiles: [URL] = []
+    @Published var comparison: ConversionComparison?
 
     private let converter = VideoConverter()
     private var sourceSize: CGSize?
+    private var sourceSummary: MediaFileSummary?
     private var sourceFrameRate: Float = 30
     private var sourceEstimatedDataRate: Float = 0
     private var baseOutputURLForNaming: URL?
@@ -360,6 +483,7 @@ final class ConverterViewModel: ObservableObject {
         outputURL = defaultOutputURL(for: url)
         baseOutputURLForNaming = outputURL
         lastOutputURL = nil
+        comparison = nil
         progress = 0
         resultText = ""
         statusText = "대기"
@@ -385,6 +509,7 @@ final class ConverterViewModel: ObservableObject {
         baseOutputURLForNaming = outputURL
         outputDetailText = "저장 전"
         lastOutputURL = nil
+        comparison = nil
     }
 
     func startConversion() {
@@ -414,6 +539,7 @@ final class ConverterViewModel: ObservableObject {
         resultText = "변환 중"
         statusText = "변환 중"
         lastOutputURL = nil
+        comparison = nil
         self.outputURL = finalOutputURL
 
         let options = ConversionOptions(
@@ -455,6 +581,10 @@ final class ConverterViewModel: ObservableObject {
     }
 
     func openConvertedFile(_ url: URL) {
+        openFile(url)
+    }
+
+    func openFile(_ url: URL) {
         NSWorkspace.shared.open(url)
     }
 
@@ -473,6 +603,7 @@ final class ConverterViewModel: ObservableObject {
             let outputSize = Self.fileSizeText(for: url)
             resultText = "완료: \(inputSize)에서 \(outputSize)로 저장"
             outputDetailText = "\(outputSize)"
+            loadComparison(for: url)
         case .failure(let error):
             progress = 0
             if (error as? ConversionError) == .cancelled {
@@ -489,6 +620,7 @@ final class ConverterViewModel: ObservableObject {
     private func loadInputMetadata(from url: URL) {
         inputDetailText = "파일 정보 읽는 중"
         sourceSize = nil
+        sourceSummary = nil
         sourceFrameRate = 30
         sourceEstimatedDataRate = 0
         refreshEstimatedOutputSize()
@@ -516,6 +648,15 @@ final class ConverterViewModel: ObservableObject {
                 sourceSize = summary.orientedSize
                 sourceFrameRate = summary.frameRate
                 sourceEstimatedDataRate = summary.estimatedDataRate
+                sourceSummary = MediaFileSummary(
+                    url: url,
+                    fileSizeBytes: Self.fileSizeBytes(for: url),
+                    pixelSize: summary.orientedSize,
+                    durationSeconds: duration.seconds,
+                    frameRate: summary.frameRate,
+                    estimatedDataRate: summary.estimatedDataRate,
+                    hasAudio: !audioTracks.isEmpty
+                )
                 let durationText = Self.durationText(for: duration.seconds)
                 let fileSizeText = Self.fileSizeText(for: url)
                 let audioText = audioTracks.isEmpty ? "오디오 없음" : "오디오 있음"
@@ -526,10 +667,40 @@ final class ConverterViewModel: ObservableObject {
                 guard inputURL == url else { return }
                 inputDetailText = "파일 정보를 읽지 못함"
                 sourceSize = nil
+                sourceSummary = nil
                 sourceFrameRate = 30
                 sourceEstimatedDataRate = 0
                 refreshEstimatedOutputSize()
             }
+        }
+    }
+
+    private func loadComparison(for outputURL: URL) {
+        guard let inputURL else {
+            comparison = nil
+            return
+        }
+
+        let currentInputURL = inputURL
+        let cachedInputSummary = sourceSummary
+
+        Task { @MainActor in
+            let inputSummary: MediaFileSummary?
+            if let cachedInputSummary {
+                inputSummary = cachedInputSummary
+            } else {
+                inputSummary = try? await Self.mediaSummary(for: currentInputURL)
+            }
+            let outputSummary = try? await Self.mediaSummary(for: outputURL)
+
+            guard self.inputURL?.standardizedFileURL.path == currentInputURL.standardizedFileURL.path,
+                  self.lastOutputURL?.standardizedFileURL.path == outputURL.standardizedFileURL.path,
+                  let inputSummary,
+                  let outputSummary else {
+                return
+            }
+
+            comparison = ConversionComparison(input: inputSummary, output: outputSummary)
         }
     }
 
@@ -646,15 +817,52 @@ final class ConverterViewModel: ObservableObject {
     }
 
     private static func fileSizeText(for url: URL?) -> String {
-        guard let url,
-              let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
-              let fileSize = values.fileSize else {
+        guard let fileSize = fileSizeBytes(for: url) else {
             return "알 수 없음"
         }
 
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(fileSize))
+        return formatter.string(fromByteCount: fileSize)
+    }
+
+    private static func fileSizeBytes(for url: URL?) -> Int64? {
+        guard let url,
+              let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+              let fileSize = values.fileSize else {
+            return nil
+        }
+        return Int64(fileSize)
+    }
+
+    private static func mediaSummary(for url: URL) async throws -> MediaFileSummary {
+        let asset = AVURLAsset(url: url)
+        let videoTracks = try await asset.loadTracks(withMediaType: .video)
+        let duration = try await asset.load(.duration)
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+
+        guard let videoTrack = videoTracks.first else {
+            return MediaFileSummary(
+                url: url,
+                fileSizeBytes: fileSizeBytes(for: url),
+                pixelSize: nil,
+                durationSeconds: duration.seconds,
+                frameRate: nil,
+                estimatedDataRate: 0,
+                hasAudio: !audioTracks.isEmpty
+            )
+        }
+
+        let summary = try await VideoConverter.trackSummary(for: videoTrack)
+        return MediaFileSummary(
+            url: url,
+            fileSizeBytes: fileSizeBytes(for: url),
+            pixelSize: summary.orientedSize,
+            durationSeconds: duration.seconds,
+            frameRate: summary.frameRate,
+            estimatedDataRate: summary.estimatedDataRate,
+            hasAudio: !audioTracks.isEmpty
+        )
     }
 
     private static func bitrateText(for bitsPerSecond: Int) -> String {
@@ -677,6 +885,139 @@ final class ConverterViewModel: ObservableObject {
 
     private static func isSameFile(_ lhs: URL, _ rhs: URL) -> Bool {
         lhs.standardizedFileURL.path == rhs.standardizedFileURL.path
+    }
+}
+
+struct ConversionComparison {
+    let input: MediaFileSummary
+    let output: MediaFileSummary
+
+    var sizeDifferenceBytes: Int64? {
+        guard let inputBytes = input.fileSizeBytes, let outputBytes = output.fileSizeBytes else {
+            return nil
+        }
+        return inputBytes - outputBytes
+    }
+
+    var isSmaller: Bool {
+        guard let sizeDifferenceBytes else {
+            return true
+        }
+        return sizeDifferenceBytes >= 0
+    }
+
+    var savingsText: String {
+        guard let inputBytes = input.fileSizeBytes,
+              let outputBytes = output.fileSizeBytes,
+              inputBytes > 0 else {
+            return "절감률 알 수 없음"
+        }
+
+        let difference = inputBytes - outputBytes
+        let percentage = abs(Double(difference) / Double(inputBytes) * 100)
+        if difference >= 0 {
+            return String(format: "%.1f%% 절감", percentage)
+        }
+        return String(format: "%.1f%% 증가", percentage)
+    }
+
+    var sizeDifferenceText: String {
+        guard let sizeDifferenceBytes else {
+            return "용량 차이 알 수 없음"
+        }
+
+        let prefix = sizeDifferenceBytes >= 0 ? "-" : "+"
+        return "\(prefix)\(MediaSummaryFormatter.fileSizeText(for: abs(sizeDifferenceBytes)))"
+    }
+}
+
+struct MediaFileSummary {
+    let url: URL
+    let fileSizeBytes: Int64?
+    let pixelSize: CGSize?
+    let durationSeconds: Double?
+    let frameRate: Float?
+    let estimatedDataRate: Float
+    let hasAudio: Bool?
+
+    var fileSizeText: String {
+        MediaSummaryFormatter.fileSizeText(for: fileSizeBytes)
+    }
+
+    var resolutionText: String {
+        guard let pixelSize else {
+            return "알 수 없음"
+        }
+        return "\(Int(pixelSize.width)) x \(Int(pixelSize.height))"
+    }
+
+    var durationText: String {
+        MediaSummaryFormatter.durationText(for: durationSeconds)
+    }
+
+    var frameRateText: String {
+        MediaSummaryFormatter.frameRateText(for: frameRate)
+    }
+
+    var bitrateText: String {
+        MediaSummaryFormatter.bitrateText(for: Int(estimatedDataRate))
+    }
+
+    var audioText: String {
+        guard let hasAudio else {
+            return "알 수 없음"
+        }
+        return hasAudio ? "있음" : "없음"
+    }
+}
+
+private enum MediaSummaryFormatter {
+    static func fileSizeText(for bytes: Int64?) -> String {
+        guard let bytes else {
+            return "알 수 없음"
+        }
+
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+
+    static func durationText(for seconds: Double?) -> String {
+        guard let seconds, seconds.isFinite, seconds > 0 else {
+            return "0:00"
+        }
+
+        let totalSeconds = Int(seconds.rounded())
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let remainingSeconds = totalSeconds % 60
+
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
+        }
+        return String(format: "%d:%02d", minutes, remainingSeconds)
+    }
+
+    static func bitrateText(for bitsPerSecond: Int) -> String {
+        guard bitsPerSecond > 0 else {
+            return "알 수 없음"
+        }
+
+        if bitsPerSecond >= 1_000_000 {
+            return String(format: "%.1fMbps", Double(bitsPerSecond) / 1_000_000)
+        }
+        return "\(max(1, bitsPerSecond / 1_000))kbps"
+    }
+
+    static func frameRateText(for frameRate: Float?) -> String {
+        guard let frameRate, frameRate > 0 else {
+            return "알 수 없음"
+        }
+
+        if frameRate.rounded() == frameRate {
+            return "\(Int(frameRate))fps"
+        }
+        return String(format: "%.1ffps", frameRate)
     }
 }
 

@@ -18,6 +18,8 @@ macOS에서 실행되는 SwiftUI 기반 MP4 압축 유틸리티입니다. 외부
 ./run.sh
 ```
 
+루트의 `run.sh`, `build.sh`, `build_app.sh`는 편의를 위한 바로가기 스크립트입니다. 실제 명령은 `Scripts/` 폴더 안의 같은 이름 스크립트에 들어 있습니다.
+
 ## 릴리스용 앱 번들 생성
 
 ```bash
@@ -31,6 +33,8 @@ macOS에서 실행되는 SwiftUI 기반 MP4 압축 유틸리티입니다. 외부
 ```bash
 ./build.sh
 ```
+
+`build.sh`는 Swift 실행 파일만 컴파일해서 `.build/release/MP4ConvertorApp`를 만드는 확인용 빌드입니다. `build_app.sh`는 같은 릴리스 빌드를 먼저 수행한 뒤, 실행 파일과 `Support/Info.plist`를 묶어 Finder에서 실행할 수 있는 `dist/MP4ConvertorApp.app` 앱 번들을 만듭니다.
 
 ## 요구 사항
 
