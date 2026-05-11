@@ -157,6 +157,16 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+
+            GridRow {
+                Text("파일명")
+                    .frame(width: 92, alignment: .leading)
+                Toggle("옵션 기록", isOn: $viewModel.includeOptionsInFileName)
+                    .toggleStyle(.checkbox)
+                Text("변환 시 해상도/압축/FPS/오디오 옵션을 파일명에 추가")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
     }
 
@@ -174,6 +184,26 @@ struct ContentView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
+
+            if !viewModel.convertedFiles.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("변환된 파일")
+                        .font(.subheadline.weight(.semibold))
+                    ForEach(viewModel.convertedFiles, id: \.path) { fileURL in
+                        Button {
+                            viewModel.openConvertedFile(fileURL)
+                        } label: {
+                            Label(fileURL.lastPathComponent, systemImage: "doc")
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.blue)
+                    }
+                }
+                .padding(.top, 6)
+            }
         }
     }
 
@@ -287,14 +317,17 @@ final class ConverterViewModel: ObservableObject {
     @Published var customHeight = "720" {
         didSet { refreshEstimatedOutputSize() }
     }
+    @Published var includeOptionsInFileName = false
     @Published var progress = 0.0
     @Published var isConverting = false
     @Published var estimatedOutputSizeText = ""
+    @Published var convertedFiles: [URL] = []
 
     private let converter = VideoConverter()
     private var sourceSize: CGSize?
     private var sourceFrameRate: Float = 30
     private var sourceEstimatedDataRate: Float = 0
+    private var baseOutputURLForNaming: URL?
 
     var inputPathText: String {
         inputURL?.path(percentEncoded: false) ?? "MP4 파일 없음"
@@ -325,6 +358,7 @@ final class ConverterViewModel: ObservableObject {
 
         inputURL = url
         outputURL = defaultOutputURL(for: url)
+        baseOutputURLForNaming = outputURL
         lastOutputURL = nil
         progress = 0
         resultText = ""
@@ -348,6 +382,7 @@ final class ConverterViewModel: ObservableObject {
         }
 
         outputURL = url.pathExtension.lowercased() == "mp4" ? url : url.appendingPathExtension("mp4")
+        baseOutputURLForNaming = outputURL
         outputDetailText = "저장 전"
         lastOutputURL = nil
     }
@@ -358,7 +393,12 @@ final class ConverterViewModel: ObservableObject {
             return
         }
 
-        guard !Self.isSameFile(inputURL, outputURL) else {
+        let namingBaseURL = baseOutputURLForNaming ?? outputURL
+        let finalOutputURL = includeOptionsInFileName
+            ? outputURLWithConversionOptions(from: namingBaseURL)
+            : namingBaseURL
+
+        guard !Self.isSameFile(inputURL, finalOutputURL) else {
             alertMessage = "출력 파일은 입력 파일과 다른 위치 또는 다른 이름으로 지정하세요."
             return
         }
@@ -374,10 +414,11 @@ final class ConverterViewModel: ObservableObject {
         resultText = "변환 중"
         statusText = "변환 중"
         lastOutputURL = nil
+        self.outputURL = finalOutputURL
 
         let options = ConversionOptions(
             inputURL: inputURL,
-            outputURL: outputURL,
+            outputURL: finalOutputURL,
             removeAudio: removeAudio,
             resizePreset: resizePreset,
             customWidth: customSize?.width,
@@ -413,6 +454,10 @@ final class ConverterViewModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([lastOutputURL])
     }
 
+    func openConvertedFile(_ url: URL) {
+        NSWorkspace.shared.open(url)
+    }
+
     private func finishConversion(_ result: Result<URL, Error>) {
         isConverting = false
 
@@ -420,6 +465,9 @@ final class ConverterViewModel: ObservableObject {
         case .success(let url):
             progress = 1
             lastOutputURL = url
+            if !convertedFiles.contains(where: { $0.standardizedFileURL.path == url.standardizedFileURL.path }) {
+                convertedFiles.insert(url, at: 0)
+            }
             statusText = "완료"
             let inputSize = Self.fileSizeText(for: inputURL)
             let outputSize = Self.fileSizeText(for: url)
@@ -521,6 +569,64 @@ final class ConverterViewModel: ObservableObject {
             .deletingLastPathComponent()
             .appendingPathComponent("\(baseName)-compressed")
             .appendingPathExtension("mp4")
+    }
+
+    private func outputURLWithConversionOptions(from baseURL: URL) -> URL {
+        let baseName = baseURL.deletingPathExtension().lastPathComponent
+        let safeOptionText = conversionOptionSuffix()
+        let finalName = "\(baseName)-\(safeOptionText)"
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "/", with: "-")
+        return baseURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(finalName)
+            .appendingPathExtension("mp4")
+    }
+
+    private func conversionOptionSuffix() -> String {
+        let customSize = validatedCustomSize()
+        let sizeText: String
+        switch resizePreset {
+        case .original:
+            sizeText = "orig"
+        case .p1080:
+            sizeText = "1080p"
+        case .p720:
+            sizeText = "720p"
+        case .p480:
+            sizeText = "480p"
+        case .custom:
+            if let customSize {
+                sizeText = "\(customSize.width)x\(customSize.height)"
+            } else {
+                sizeText = "custom"
+            }
+        }
+
+        let qualityText: String
+        switch compressionQuality {
+        case .high:
+            qualityText = "hq"
+        case .balanced:
+            qualityText = "balanced"
+        case .small:
+            qualityText = "small"
+        }
+
+        let frameText: String
+        switch frameRateMode {
+        case .original:
+            frameText = "fps-orig"
+        case .fps30:
+            frameText = "fps30"
+        case .fps24:
+            frameText = "fps24"
+        case .fps15:
+            frameText = "fps15"
+        }
+
+        let audioText = removeAudio ? "mute" : "audio"
+        return "\(sizeText)-\(qualityText)-\(frameText)-\(audioText)"
     }
 
     private static func durationText(for seconds: Double) -> String {
