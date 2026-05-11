@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build MP4ConvertorApp",
+      "type": "shell",
+      "command": "./Scripts/build.sh",
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Run MP4ConvertorApp",
+      "type": "shell",
+      "command": "./Scripts/run.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "Create macOS App Bundle",
+      "type": "shell",
+      "command": "./Scripts/build_app.sh",
+      "problemMatcher": []
+    }
+  ]
+}
