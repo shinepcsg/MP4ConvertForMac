@@ -2,6 +2,14 @@
 
 macOS에서 실행되는 SwiftUI 기반 MP4 압축 유틸리티입니다. 외부 `ffmpeg` 없이 macOS 기본 `AVFoundation`으로 MP4를 다시 내보냅니다.
 
+## 스크린샷
+
+### 메인 UI
+![메인 UI](Screenshot/MP4ConverterMainUI.png)
+
+### 원본/변환본 동시 재생
+![원본/변환본 동시 재생](Screenshot/MP4ConverterPreviewUI.png)
+
 ## 기능
 
 - MP4 입력 파일 선택
@@ -11,6 +19,8 @@ macOS에서 실행되는 SwiftUI 기반 MP4 압축 유틸리티입니다. 외부
 - 화질 우선, 균형, 용량 우선 비트레이트 기반 압축
 - 원본, 30fps, 24fps, 15fps 출력 프레임 제한
 - 변환 진행률 표시와 Finder에서 결과 확인
+- 변환 후 원본/변환본 비교와 별도 최대화 창에서 동시 동영상 재생
+- 동시 재생 위치 슬라이더 동기화, 영상 표시 크기 조절, 맞춤/채움 표시 방식
 
 ## 실행
 
