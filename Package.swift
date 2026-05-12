@@ -2,16 +2,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "MP4ConvertorApp",
+    name: "MP4Convertor",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "MP4ConvertorApp", targets: ["MP4ConvertorApp"])
+        .executable(name: "MP4Convertor", targets: ["MP4Convertor"])
     ],
     targets: [
         .executableTarget(
-            name: "MP4ConvertorApp",
+            name: "MP4Convertor",
             swiftSettings: [
                 .swiftLanguageMode(.v5)
             ]

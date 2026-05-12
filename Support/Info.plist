@@ -7,13 +7,13 @@
     <key>CFBundleDisplayName</key>
     <string>MP4 영상 압축기 v2</string>
     <key>CFBundleExecutable</key>
-    <string>MP4ConvertorApp</string>
+    <string>MP4Convertor</string>
     <key>CFBundleIdentifier</key>
-    <string>kr.trollgames.MP4ConvertorApp</string>
+    <string>kr.trollgames.MP4Convertor</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>MP4ConvertorApp</string>
+    <string>MP4Convertor</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

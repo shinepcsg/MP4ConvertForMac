@@ -1650,7 +1650,7 @@ enum FrameRateMode: String, CaseIterable, Identifiable {
 }
 
 final class VideoConverter {
-    private let accessQueue = DispatchQueue(label: "kr.trollgames.MP4ConvertorApp.converter.state")
+    private let accessQueue = DispatchQueue(label: "kr.trollgames.MP4Convertor.converter.state")
     private var activeReader: AVAssetReader?
     private var activeWriter: AVAssetWriter?
     private var activeCancellationToken: CancellationToken?
@@ -1854,7 +1854,7 @@ final class VideoConverter {
         appendSamples(
             output: state.videoOutput,
             input: state.videoInput,
-            queueLabel: "kr.trollgames.MP4ConvertorApp.converter.video",
+            queueLabel: "kr.trollgames.MP4Convertor.converter.video",
             duration: state.duration,
             cancellationToken: cancellationToken,
             failureBox: failureBox,
@@ -1866,7 +1866,7 @@ final class VideoConverter {
             appendSamples(
                 output: audioOutput,
                 input: audioInput,
-                queueLabel: "kr.trollgames.MP4ConvertorApp.converter.audio",
+                queueLabel: "kr.trollgames.MP4Convertor.converter.audio",
                 duration: state.duration,
                 cancellationToken: cancellationToken,
                 failureBox: failureBox,
@@ -1875,7 +1875,7 @@ final class VideoConverter {
             )
         }
 
-        group.notify(queue: DispatchQueue(label: "kr.trollgames.MP4ConvertorApp.converter.finish")) {
+        group.notify(queue: DispatchQueue(label: "kr.trollgames.MP4Convertor.converter.finish")) {
             if cancellationToken.isCancelled {
                 state.reader.cancelReading()
                 state.writer.cancelWriting()

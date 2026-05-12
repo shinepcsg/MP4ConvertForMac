@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Build MP4ConvertorApp",
+      "label": "Build MP4Convertor",
       "type": "shell",
       "command": "./Scripts/build.sh",
       "problemMatcher": [],
@@ -12,7 +12,7 @@
       }
     },
     {
-      "label": "Run MP4ConvertorApp",
+      "label": "Run MP4Convertor",
       "type": "shell",
       "command": "./Scripts/run.sh",
       "problemMatcher": []
