@@ -1,5 +1,6 @@
 import AppKit
 @preconcurrency import AVFoundation
+import AVKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -16,39 +17,65 @@ struct MP4ConvertorApplication: App {
         WindowGroup {
             ContentView()
         }
+        .defaultSize(width: 980, height: 760)
         .windowResizability(.contentMinSize)
     }
 }
 
 struct ContentView: View {
     @StateObject private var viewModel = ConverterViewModel()
+    @State private var previewWindowController: VideoComparisonWindowController?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            header
-            Divider()
-            fileSection
-            Divider()
-            optionSection
-            Divider()
-            progressSection
-            if let comparison = viewModel.comparison {
-                Divider()
-                FileComparisonView(
-                    comparison: comparison,
-                    openOriginal: { viewModel.openFile(comparison.input.url) },
-                    openOutput: { viewModel.openFile(comparison.output.url) }
-                )
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    Divider()
+                    fileSection
+                    Divider()
+                    optionSection
+                    Divider()
+                    progressSection
+                    if let comparison = viewModel.comparison {
+                        Divider()
+                        FileComparisonView(
+                            comparison: comparison,
+                            playComparison: {
+                                openPreviewComparison(comparison)
+                            }
+                        )
+                    }
+                }
+                .padding(22)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            actionSection
+
+            VStack(spacing: 0) {
+                Divider()
+                actionSection
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 14)
+            }
         }
-        .padding(22)
-        .frame(minWidth: 900, minHeight: 640)
+        .frame(minWidth: 900, minHeight: 720)
         .alert("처리 실패", isPresented: alertBinding) {
             Button("확인", role: .cancel) { viewModel.alertMessage = nil }
         } message: {
             Text(viewModel.alertMessage ?? "")
         }
+    }
+
+    private func openPreviewComparison(_ comparison: ConversionComparison) {
+        previewWindowController?.close()
+        let controller = VideoComparisonWindowController(
+            item: VideoComparisonPreviewItem(comparison: comparison),
+            onClose: {
+                previewWindowController = nil
+            }
+        )
+        previewWindowController = controller
+        controller.show()
     }
 
     private var header: some View {
@@ -306,8 +333,7 @@ private struct FilePickerRow: View {
 
 private struct FileComparisonView: View {
     let comparison: ConversionComparison
-    let openOriginal: () -> Void
-    let openOutput: () -> Void
+    let playComparison: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -315,6 +341,9 @@ private struct FileComparisonView: View {
                 Label("원본 비교", systemImage: "rectangle.split.2x1")
                     .font(.headline)
                 Spacer()
+                Button(action: playComparison) {
+                    Label("동시 재생", systemImage: "play.rectangle")
+                }
                 Text(comparison.savingsText)
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(comparison.isSmaller ? .green : .orange)
@@ -327,21 +356,459 @@ private struct FileComparisonView: View {
                 ComparisonFilePanel(
                     title: "원본",
                     iconName: "film",
-                    summary: comparison.input,
-                    buttonTitle: "원본 열기",
-                    buttonIcon: "play.rectangle",
-                    action: openOriginal
+                    summary: comparison.input
                 )
                 ComparisonFilePanel(
                     title: "변환본",
                     iconName: "film.stack",
-                    summary: comparison.output,
-                    buttonTitle: "변환본 열기",
-                    buttonIcon: "play.rectangle.fill",
-                    action: openOutput
+                    summary: comparison.output
                 )
             }
         }
+    }
+}
+
+private struct VideoComparisonPreviewItem: Identifiable {
+    let input: MediaFileSummary
+    let output: MediaFileSummary
+
+    init(comparison: ConversionComparison) {
+        input = comparison.input
+        output = comparison.output
+    }
+
+    var id: String {
+        "\(input.url.standardizedFileURL.path)-\(output.url.standardizedFileURL.path)"
+    }
+}
+
+private enum PreviewVideoGravity: String, CaseIterable, Identifiable {
+    case fit
+    case fill
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .fit:
+            return "맞춤"
+        case .fill:
+            return "채움"
+        }
+    }
+
+    var avLayerVideoGravity: AVLayerVideoGravity {
+        switch self {
+        case .fit:
+            return .resizeAspect
+        case .fill:
+            return .resizeAspectFill
+        }
+    }
+}
+
+@MainActor
+private final class VideoComparisonWindowController: NSObject, NSWindowDelegate {
+    private var window: NSWindow?
+    private let onClose: () -> Void
+
+    init(item: VideoComparisonPreviewItem, onClose: @escaping () -> Void) {
+        self.onClose = onClose
+        super.init()
+
+        let visibleFrame = Self.maximizedFrame()
+        let window = NSWindow(
+            contentRect: visibleFrame,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "원본/변환본 동시 재생"
+        window.minSize = NSSize(
+            width: min(1080, max(900, visibleFrame.width)),
+            height: min(680, max(560, visibleFrame.height))
+        )
+        window.collectionBehavior = [.managed, .fullScreenPrimary]
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.contentViewController = NSHostingController(
+            rootView: VideoComparisonPreviewSheet(item: item) { [weak window] in
+                window?.close()
+            }
+        )
+        self.window = window
+    }
+
+    func show() {
+        guard let window else {
+            return
+        }
+
+        window.setFrame(Self.maximizedFrame(for: window.screen ?? NSScreen.main), display: true)
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    func close() {
+        window?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        window?.delegate = nil
+        window = nil
+        onClose()
+    }
+
+    private static func maximizedFrame(for screen: NSScreen? = NSScreen.main) -> NSRect {
+        screen?.visibleFrame ?? NSRect(x: 80, y: 80, width: 1280, height: 800)
+    }
+}
+
+private struct VideoComparisonPreviewSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let item: VideoComparisonPreviewItem
+    let closeAction: (() -> Void)?
+    @State private var inputPlayer: AVPlayer
+    @State private var outputPlayer: AVPlayer
+    @State private var isPlaying = false
+    @State private var playbackPosition = 0.0
+    @State private var playbackDuration: Double
+    @State private var isScrubbing = false
+    @State private var timeObserver: Any?
+    @State private var previewHeight: Double
+    @State private var videoGravity: PreviewVideoGravity = .fit
+
+    init(item: VideoComparisonPreviewItem, closeAction: (() -> Void)? = nil) {
+        self.item = item
+        self.closeAction = closeAction
+        _inputPlayer = State(initialValue: Self.makePlayer(for: item.input.url))
+        _outputPlayer = State(initialValue: Self.makePlayer(for: item.output.url))
+        _playbackDuration = State(initialValue: Self.playbackDuration(for: item))
+        _previewHeight = State(initialValue: Self.initialPreviewHeight())
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Label("원본/변환본 동시 재생", systemImage: "rectangle.split.2x1")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    restartBoth()
+                } label: {
+                    Label("처음부터", systemImage: "backward.end.fill")
+                }
+                Button {
+                    togglePlayback()
+                } label: {
+                    Label(isPlaying ? "일시정지" : "재생", systemImage: isPlaying ? "pause.fill" : "play.fill")
+                }
+                Button {
+                    closePreview()
+                } label: {
+                    Label("닫기", systemImage: "xmark.circle")
+                }
+            }
+
+            playbackDisplayControls
+
+            HStack(alignment: .top, spacing: 12) {
+                VideoPreviewColumn(
+                    title: "원본",
+                    systemImage: "film",
+                    summary: item.input,
+                    player: inputPlayer,
+                    playbackPosition: playbackPositionBinding,
+                    playbackDuration: playbackDuration,
+                    previewHeight: previewHeight,
+                    videoGravity: videoGravity.avLayerVideoGravity,
+                    onScrubbingChanged: handleScrubbingChanged
+                )
+                VideoPreviewColumn(
+                    title: "변환본",
+                    systemImage: "film.stack",
+                    summary: item.output,
+                    player: outputPlayer,
+                    playbackPosition: playbackPositionBinding,
+                    playbackDuration: playbackDuration,
+                    previewHeight: previewHeight,
+                    videoGravity: videoGravity.avLayerVideoGravity,
+                    onScrubbingChanged: handleScrubbingChanged
+                )
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 1080, maxWidth: .infinity, minHeight: 680, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear {
+            installTimeObserver()
+            restartBoth()
+        }
+        .onDisappear {
+            stopBoth()
+        }
+    }
+
+    private var playbackDisplayControls: some View {
+        HStack(spacing: 14) {
+            Label("영상 크기", systemImage: "arrow.up.left.and.arrow.down.right")
+                .font(.callout.weight(.medium))
+            Slider(value: $previewHeight, in: 280...Self.maximumPreviewHeight())
+                .frame(width: 220)
+            Text("\(Int(previewHeight))px")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .trailing)
+
+            Picker("표시 방식", selection: $videoGravity) {
+                ForEach(PreviewVideoGravity.allCases) { gravity in
+                    Text(gravity.title).tag(gravity)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(width: 130)
+
+            Spacer(minLength: 12)
+
+            Text("\(timeText(for: playbackPosition)) / \(timeText(for: playbackDuration))")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var playbackPositionBinding: Binding<Double> {
+        Binding(
+            get: { playbackPosition },
+            set: { newValue in
+                let clampedValue = clampedPlaybackTime(newValue)
+                playbackPosition = clampedValue
+                if isScrubbing {
+                    seekBoth(to: clampedValue, resumeAfterSeek: false)
+                }
+            }
+        )
+    }
+
+    private static func makePlayer(for url: URL) -> AVPlayer {
+        let player = AVPlayer(url: url)
+        player.actionAtItemEnd = .pause
+        return player
+    }
+
+    private static func playbackDuration(for item: VideoComparisonPreviewItem) -> Double {
+        max(item.input.durationSeconds ?? 0, item.output.durationSeconds ?? 0)
+    }
+
+    private static func initialPreviewHeight() -> Double {
+        min(maximumPreviewHeight(), 640)
+    }
+
+    private static func maximumPreviewHeight() -> Double {
+        let visibleHeight = NSScreen.main?.visibleFrame.height ?? 900
+        return max(280, min(760, visibleHeight - 220))
+    }
+
+    private func installTimeObserver() {
+        guard timeObserver == nil else {
+            return
+        }
+
+        timeObserver = inputPlayer.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
+            queue: .main
+        ) { time in
+            guard !isScrubbing else {
+                return
+            }
+            let seconds = clampedPlaybackTime(time.seconds)
+            playbackPosition = seconds
+            syncOutputPlayerIfNeeded(to: seconds)
+        }
+    }
+
+    private func removeTimeObserver() {
+        guard let timeObserver else {
+            return
+        }
+        inputPlayer.removeTimeObserver(timeObserver)
+        self.timeObserver = nil
+    }
+
+    private func restartBoth() {
+        inputPlayer.pause()
+        outputPlayer.pause()
+        playbackPosition = 0
+        seekBoth(to: 0, resumeAfterSeek: true)
+        isPlaying = true
+    }
+
+    private func togglePlayback() {
+        if isPlaying {
+            inputPlayer.pause()
+            outputPlayer.pause()
+            isPlaying = false
+        } else {
+            if playbackDuration > 0, playbackPosition >= playbackDuration - 0.1 {
+                seekBoth(to: 0, resumeAfterSeek: true)
+                playbackPosition = 0
+            } else {
+                inputPlayer.play()
+                outputPlayer.play()
+            }
+            isPlaying = true
+        }
+    }
+
+    private func handleScrubbingChanged(_ isEditing: Bool) {
+        if isEditing {
+            isScrubbing = true
+            inputPlayer.pause()
+            outputPlayer.pause()
+        } else {
+            isScrubbing = false
+            seekBoth(to: playbackPosition, resumeAfterSeek: isPlaying)
+        }
+    }
+
+    private func seekBoth(to seconds: Double, resumeAfterSeek: Bool) {
+        let clampedSeconds = clampedPlaybackTime(seconds)
+        let time = CMTime(seconds: clampedSeconds, preferredTimescale: 600)
+        inputPlayer.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+        outputPlayer.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+
+        if resumeAfterSeek {
+            inputPlayer.play()
+            outputPlayer.play()
+        }
+    }
+
+    private func syncOutputPlayerIfNeeded(to seconds: Double) {
+        guard isPlaying else {
+            return
+        }
+
+        let outputSeconds = outputPlayer.currentTime().seconds
+        guard outputSeconds.isFinite, abs(outputSeconds - seconds) > 0.25 else {
+            return
+        }
+        outputPlayer.seek(
+            to: CMTime(seconds: seconds, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
+    }
+
+    private func clampedPlaybackTime(_ seconds: Double) -> Double {
+        guard seconds.isFinite else {
+            return 0
+        }
+        return min(max(seconds, 0), max(playbackDuration, 0))
+    }
+
+    private func timeText(for seconds: Double) -> String {
+        MediaSummaryFormatter.durationText(for: seconds)
+    }
+
+    private func closePreview() {
+        if let closeAction {
+            closeAction()
+        } else {
+            dismiss()
+        }
+    }
+
+    private func stopBoth() {
+        removeTimeObserver()
+        inputPlayer.pause()
+        outputPlayer.pause()
+        inputPlayer.replaceCurrentItem(with: nil)
+        outputPlayer.replaceCurrentItem(with: nil)
+        isPlaying = false
+    }
+}
+
+private struct VideoPreviewColumn: View {
+    let title: String
+    let systemImage: String
+    let summary: MediaFileSummary
+    let player: AVPlayer
+    @Binding var playbackPosition: Double
+    let playbackDuration: Double
+    let previewHeight: Double
+    let videoGravity: AVLayerVideoGravity
+    let onScrubbingChanged: (Bool) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+
+            AppKitVideoPlayer(player: player, videoGravity: videoGravity)
+                .frame(minWidth: 500, maxWidth: .infinity)
+                .frame(height: previewHeight)
+                .background(Color.black)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            HStack(spacing: 8) {
+                Text(timeText(for: playbackPosition))
+                    .frame(width: 48, alignment: .leading)
+                Slider(
+                    value: $playbackPosition,
+                    in: 0...max(playbackDuration, 0.1),
+                    onEditingChanged: onScrubbingChanged
+                )
+                .disabled(playbackDuration <= 0)
+                Text(timeText(for: playbackDuration))
+                    .frame(width: 48, alignment: .trailing)
+            }
+            .font(.system(.caption, design: .monospaced))
+            .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                Text(summary.url.lastPathComponent)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 12)
+                Text(summary.resolutionText)
+                Text(summary.durationText)
+                Text(summary.fileSizeText)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func timeText(for seconds: Double) -> String {
+        MediaSummaryFormatter.durationText(for: seconds)
+    }
+}
+
+private struct AppKitVideoPlayer: NSViewRepresentable {
+    let player: AVPlayer
+    let videoGravity: AVLayerVideoGravity
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let playerView = AVPlayerView()
+        playerView.player = player
+        playerView.controlsStyle = .none
+        playerView.videoGravity = videoGravity
+        return playerView
+    }
+
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        if nsView.player !== player {
+            nsView.player = player
+        }
+        if nsView.videoGravity != videoGravity {
+            nsView.videoGravity = videoGravity
+        }
+    }
+
+    static func dismantleNSView(_ nsView: AVPlayerView, coordinator: ()) {
+        nsView.player?.pause()
+        nsView.player = nil
     }
 }
 
@@ -349,9 +816,6 @@ private struct ComparisonFilePanel: View {
     let title: String
     let iconName: String
     let summary: MediaFileSummary
-    let buttonTitle: String
-    let buttonIcon: String
-    let action: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -378,12 +842,6 @@ private struct ComparisonFilePanel: View {
                 ComparisonMetricRow(title: "비트레이트", value: summary.bitrateText)
                 ComparisonMetricRow(title: "오디오", value: summary.audioText)
             }
-
-            Button(action: action) {
-                Label(buttonTitle, systemImage: buttonIcon)
-                    .frame(maxWidth: .infinity)
-            }
-            .padding(.top, 2)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
