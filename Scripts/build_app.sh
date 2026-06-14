@@ -13,6 +13,6 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$EXECUTABLE" "$APP_DIR/Contents/MacOS/MP4Convertor"
 cp "$ROOT_DIR/Support/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT_DIR/Support/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
-chmod +x "$APP_DIR/Contents/MacOS/MP4ConvertorApp"
+chmod +x "$APP_DIR/Contents/MacOS/MP4Convertor"
 
 echo "$APP_DIR"
