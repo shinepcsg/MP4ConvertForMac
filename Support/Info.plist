@@ -8,6 +8,8 @@
     <string>MP4 영상 압축기 v2</string>
     <key>CFBundleExecutable</key>
     <string>MP4ConvertorApp</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>kr.trollgames.MP4ConvertorApp</string>
     <key>CFBundleInfoDictionaryVersion</key>

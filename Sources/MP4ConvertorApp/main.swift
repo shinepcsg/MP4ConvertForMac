@@ -25,6 +25,7 @@ struct MP4ConvertorApplication: App {
 struct ContentView: View {
     @StateObject private var viewModel = ConverterViewModel()
     @State private var previewWindowController: VideoComparisonWindowController?
+    @State private var hasPresentedInitialOpenPanel = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -63,6 +64,21 @@ struct ContentView: View {
             Button("확인", role: .cancel) { viewModel.alertMessage = nil }
         } message: {
             Text(viewModel.alertMessage ?? "")
+        }
+        .onAppear {
+            presentInitialOpenPanelIfNeeded()
+        }
+    }
+
+    private func presentInitialOpenPanelIfNeeded() {
+        guard !hasPresentedInitialOpenPanel else {
+            return
+        }
+
+        hasPresentedInitialOpenPanel = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            viewModel.chooseInputFile()
         }
     }
 
