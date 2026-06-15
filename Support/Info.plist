@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>MP4 영상 압축기 v2</string>
     <key>CFBundleExecutable</key>
-    <string>MP4ConvertorApp</string>
+    <string>MP4Convertor</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
